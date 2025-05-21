@@ -95,9 +95,9 @@ def get_item_emb_dict(data_path):
 
     return item_emb_dict
 
+
 # 定义一个简单的最小-最大归一化函数，将数据缩放到 [0,1] 区间
 max_min_scaler = lambda x: (x - np.min(x)) / (np.max(x) - np.min(x))
-
 
 # 采样数据
 all_click_df = get_all_click_sample(data_path)
@@ -111,6 +111,7 @@ all_click_df['click_timestamp'] = all_click_df[['click_timestamp']].apply(max_mi
 item_info_df = get_item_info_df(data_path)
 
 item_emb_dict = get_item_emb_dict(data_path)
+
 
 # 获取用户-文章-时间函数
 # 根据点击时间获取用户的点击文章序列   {user1: [(item1, time1), (item2, time2)..]...}
@@ -126,6 +127,7 @@ def get_user_item_time(click_df):
     user_item_time_dict = dict(zip(user_item_time_df['user_id'], user_item_time_df['item_time_list']))
 
     return user_item_time_dict
+
 
 # 获取文章-用户-时间函数
 # 根据时间获取商品被点击的用户序列  {item1: [(user1, time1), (user2, time2)...]...}
@@ -195,7 +197,8 @@ def get_user_hist_item_info_dict(all_click):
     max_min_scaler = lambda x: (x - np.min(x)) / (np.max(x) - np.min(x))
     user_last_item_created_time['created_at_ts'] = user_last_item_created_time[['created_at_ts']].apply(max_min_scaler)
 
-    user_last_item_created_time_dict = dict(zip(user_last_item_created_time['user_id'],  user_last_item_created_time['created_at_ts']))
+    user_last_item_created_time_dict = dict(
+        zip(user_last_item_created_time['user_id'], user_last_item_created_time['created_at_ts']))
 
     return user_hist_item_typs_dict, user_hist_item_ids_dict, user_hist_item_words_dict, user_last_item_created_time_dict
 
@@ -205,5 +208,38 @@ def get_user_hist_item_info_dict(all_click):
 def get_item_topk_click(click_df, k):
     topk_click = click_df['click_article_id'].value_counts().index[:k]
     return topk_click
+
+
+# 获取文章的属性信息，保存成字典的形式方便查询
+item_type_dict, item_words_dict, item_created_time_dict = get_item_info_dict(item_info_df)
+
+# 定义一个多路召回的字典，将各路召回的结果都保存在这个字典当中
+user_multi_recall_dict = {'itemcf_sim_itemcf_recall': {},
+                          'embedding_sim_item_recall': {},
+                          'youtubednn_recall': {},
+                          'youtubednn_usercf_recall': {},
+                          'cold_start_recall': {}}
+
+# 提取最后一次点击作为召回评估，如果不需要做召回评估直接使用全量的训练集进行召回(线下验证模型)
+# 如果不是召回评估，直接使用全量数据进行召回，不用将最后一次提取出来
+trn_hist_click_df, trn_last_click_df = get_hist_and_last_click(all_click_df)
+
+
+# 召回效果评估函数
+# 依次评估召回的前10, 20, 30, 40, 50个文章中的击中率
+def metrics_recall(user_recall_items_dict, trn_last_click_df, topk=5):
+    last_click_item_dict = dict(zip(trn_last_click_df['user_id'], trn_last_click_df['click_article_id']))
+    user_num = len(user_recall_items_dict)
+
+    for k in range(10, topk + 1, 10):
+        hit_num = 0
+        for user, item_list in user_recall_items_dict.items():
+            # 获取前k个召回的结果
+            tmp_recall_items = [x[0] for x in user_recall_items_dict[user][:k]]
+            if last_click_item_dict[user] in set(tmp_recall_items):
+                hit_num += 1
+
+        hit_rate = round(hit_num * 1.0 / user_num, 5)
+        print(' topk: ', k, ' : ', 'hit_num: ', hit_num, 'hit_rate: ', hit_rate, 'user_num : ', user_num)
 
 
